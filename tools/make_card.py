@@ -21,7 +21,7 @@ def build_bg():
 def smart(s): return s.replace("'","’").replace('"','”') if s else s
 def wrap(d,text,font,max_w):
     out,cur=[],""
-    for w in text.split():
+    for w in text.split(" "):
         t=(cur+" "+w).strip()
         if d.textlength(t,font=font)<=max_w or not cur: cur=t
         else: out.append(cur); cur=w
