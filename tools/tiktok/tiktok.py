@@ -211,6 +211,91 @@ def text_video(slides, out, cover=None, cover_dur=4.0, workdir=None):
     return render(frames, durs, out), durs
 
 
+# ------------------------------------------------------------------ habillage (projet RAP237)
+W, H = 1080, 1920
+F_MED = os.path.join(FONTS, "BaiJamjuree-Medium.ttf")
+
+
+def brand_overlay(out=None):
+    """Habillage permanent du projet RAP237 : cadre or (3 px, marge 35), logo Ronel Kouakep
+    en bas à gauche et #TheStreetSweeper en bas à droite, alignés sur la même ligne de base.
+    Centre transparent. Le dégradé du pattern est dans chaque image (voir photo_frame)."""
+    ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
+    d.rectangle([MARGIN, MARGIN, W - MARGIN, H - MARGIN], outline=GOLD + (255,), width=3)
+    lg = logo(int(78 * Image.open(LOGO).size[0] / Image.open(LOGO).size[1]))
+    base = H - MARGIN - 60
+    ov.alpha_composite(lg, (MARGIN + 40, base - lg.size[1]))
+    ft = ImageFont.truetype(F_ITAL, 30)
+    bb = d.textbbox((0, 0), "#TheStreetSweeper", font=ft)
+    d.text((W - MARGIN - 40, base - (bb[3] - bb[1]) - bb[1]), "#TheStreetSweeper", font=ft,
+           fill=GOLD + (255,), anchor="ra")
+    if out:
+        ov.save(out)
+    return ov
+
+
+def _bottom_gradient(h=620, top_alpha=0, bottom_alpha=235):
+    bg = pattern_bg(W, h).convert("RGBA")
+    a = np.linspace(0, 1, h) ** 1.4 * (bottom_alpha - top_alpha) + top_alpha
+    bg.putalpha(Image.fromarray(np.repeat(a[:, None], W, axis=1).astype("uint8")))
+    return bg
+
+
+def photo_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5, scale=2):
+    """Photo plein cadre 9:16 (centre réglable) + dégradé du pattern en bas + légende « Ville · année »."""
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    im = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
+    w, h = im.size
+    tw, th = (w, int(w * 16 / 9)) if w / h < 9 / 16 else (int(h * 9 / 16), h)
+    x = int(max(0, min(w - tw, crop_x * w - tw / 2)))
+    y = int(max(0, min(h - th, crop_y * h - th / 2)))
+    im = im.crop((x, y, x + tw, y + th)).resize((W * scale, H * scale), Image.LANCZOS).convert("RGBA")
+    g = _bottom_gradient().resize((W * scale, 620 * scale))
+    im.alpha_composite(g, (0, (H - 620) * scale))
+    if caption:
+        d = ImageDraw.Draw(im)
+        f = ImageFont.truetype(F_BOLD, 62 * scale)
+        cy = (H - MARGIN - 60 - 78 - 150) * scale
+        d.rectangle([(MARGIN + 40) * scale, cy - 22 * scale, (MARGIN + 130) * scale, cy - 16 * scale], fill=GOLD)
+        d.text(((MARGIN + 40) * scale, cy), caption, font=f, fill=WHITE)
+    im.convert("RGB").save(dst, quality=95)
+    return dst
+
+
+def finish(video, out, track=None, overlay=True, volume=1.0):
+    """Ajoute l'habillage (fixe, ne zoome pas) et la musique (fondu d'entrée et de sortie)."""
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video],
+                               capture_output=True, text=True).stdout)
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", video]
+    filt, vmap = [], "0:v"
+    if overlay:
+        ov = os.path.join(tempfile.mkdtemp(), "ov.png"); brand_overlay(ov)
+        cmd += ["-i", ov]; filt.append("[0:v][1:v]overlay=0:0[v]"); vmap = "[v]"
+    if track:
+        cmd += ["-i", track]
+        ai = 2 if overlay else 1
+        filt.append(f"[{ai}:a]atrim=0:{dur:.2f},afade=t=in:d=0.4,afade=t=out:st={max(0, dur - 1.5):.2f}:d=1.5,volume={volume}[a]")
+    if filt:
+        cmd += ["-filter_complex", ";".join(filt)]
+    cmd += ["-map", vmap] + (["-map", "[a]", "-c:a", "aac", "-b:a", "160k"] if track else ["-an"])
+    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-t", f"{dur:.2f}", out]
+    subprocess.run(cmd, check=True)
+    return out
+
+
+MUSIC_DIR = os.path.join(HERE, "music")
+
+
+def pick_track(mood, used=()):
+    """Choisit un morceau du catalogue (CC0) selon l'ambiance, en évitant ceux déjà utilisés."""
+    import json
+    cat = json.load(open(os.path.join(MUSIC_DIR, "catalogue.json")))
+    c = [t for t in cat if t["mood"] == mood and t["file"] not in used] or [t for t in cat if t["mood"] == mood]
+    return os.path.join(MUSIC_DIR, c[0]["file"])
+
+
 # ------------------------------------------------------------------ lifestyle
 def lifestyle_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5):
     """Photo recadrée 9:16 (centre réglable), légende « lieu · année », logo discret."""

@@ -22,4 +22,5 @@ URL publique : https://raw.githubusercontent.com/kroneldo28/streetsweeper-cards/
 
 ## 3. TikTok → tools/tiktok/tiktok.py (repris le 28/11/2026)
 Vidéos texte : `text_video(slides, out, cover=None)`. Chaque slide est une liste de blocs ; `**mot**` = or ; "@i " = italique. 1080x1920, durée calculée par mot, cover en tête si fournie.
-Montages lifestyle : `lifestyle_frame(photo, out, "Lieu · année", crop_x, crop_y)` puis `render(frames, [2.8]*n, out, zoom=True)`. Photos « utilisable » seulement, jamais d'enfants. Mélanger un même contexte à des époques différentes.
+Montages lifestyle : `photo_frame(photo, out, "Ville · année", crop_x, crop_y)` puis `render(frames, [2.2]*n, raw, zoom=True)` puis `finish(raw, out, track=pick_track('énergique'))` (habillage RAP237 : cadre or, logo en bas à gauche, #TheStreetSweeper en bas à droite, dégradé du pattern).
+Musique : tools/tiktok/music/ — 19 extraits CC0 (Open Bars, alexmacflai/openbars-assets), catalogue.json classé posé / moyen / énergique. Varier les morceaux d'une vidéo à l'autre. Photos « utilisable » seulement, jamais d'enfants. Mélanger un même contexte à des époques différentes.
