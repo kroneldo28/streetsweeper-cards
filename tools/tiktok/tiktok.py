@@ -362,7 +362,7 @@ def _shade(photo_png, out, y0, h, side="left", width=820):
     hx = np.clip(1 - (xs * W) / width, 0, 1) if side == "left" else np.clip(1 - ((1 - xs) * W) / width, 0, 1)
     ys = np.linspace(-1, 1, h)
     vy = np.clip(1 - np.abs(ys) ** 3, 0, 1)
-    a = (np.outer(vy, np.clip(hx * 1.6, 0, 1) ** 0.7) * 235).astype("uint8")
+    a = (np.outer(vy, np.clip(hx * 1.6, 0, 1) ** 0.7) * 95).astype("uint8")
     band.putalpha(Image.fromarray(a))
     base.alpha_composite(band, (0, int(y0)))
     base.convert("RGB").save(out)
