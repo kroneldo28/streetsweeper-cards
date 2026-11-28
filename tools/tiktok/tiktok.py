@@ -242,7 +242,7 @@ def _bottom_gradient(h=620, top_alpha=0, bottom_alpha=235):
     return bg
 
 
-def photo_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5, scale=2, subtitle=None):
+def photo_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5, scale=2, subtitle=None, caption_top=False):
     """Photo plein cadre 9:16 (centre réglable) + dégradé du pattern en bas + légende « Ville · année »."""
     from pillow_heif import register_heif_opener
     register_heif_opener()
@@ -257,12 +257,13 @@ def photo_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5, scale=2, subtitl
     if caption:
         d = ImageDraw.Draw(im)
         f = ImageFont.truetype(F_BOLD, 62 * scale)
-        cy = (H - MARGIN - 60 - 78 - 150) * scale
-        d.rectangle([(MARGIN + 40) * scale, cy - 22 * scale, (MARGIN + 130) * scale, cy - 16 * scale], fill=GOLD)
+        cy = (H - MARGIN - 60 - 78 - 150) * scale if not caption_top else (MARGIN + 220) * scale
+        if not subtitle:
+            d.rectangle([(MARGIN + 40) * scale, cy - 22 * scale, (MARGIN + 130) * scale, cy - 16 * scale], fill=GOLD)
         if subtitle:
             f = ImageFont.truetype(F_BOLD, 84 * scale)
             cy -= 70 * scale
-            d.rectangle([(MARGIN + 40) * scale, cy - 22 * scale, (MARGIN + 130) * scale, cy - 16 * scale], fill=GOLD)
+            d.rectangle([(MARGIN + 40) * scale, cy - 34 * scale, (MARGIN + 130) * scale, cy - 28 * scale], fill=GOLD)
         d.text(((MARGIN + 40) * scale, cy), caption, font=f, fill=WHITE)
         if subtitle:
             fs = ImageFont.truetype(F_MED, 44 * scale)
