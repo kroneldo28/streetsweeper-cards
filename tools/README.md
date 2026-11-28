@@ -19,3 +19,7 @@ Texte à gauche, tout en blanc, auteur en or à droite, hashtag en haut à droit
 - Options : emphasis, invert, hashtag_pos="bottom", \n pour forcer les coupes. Liste numérotée : numbered_card.py.
 
 URL publique : https://raw.githubusercontent.com/kroneldo28/streetsweeper-cards/main/cards/<fichier>
+
+## 3. TikTok → tools/tiktok/tiktok.py (repris le 28/11/2026)
+Vidéos texte : `text_video(slides, out, cover=None)`. Chaque slide est une liste de blocs ; `**mot**` = or ; "@i " = italique. 1080x1920, durée calculée par mot, cover en tête si fournie.
+Montages lifestyle : `lifestyle_frame(photo, out, "Lieu · année", crop_x, crop_y)` puis `render(frames, [2.8]*n, out, zoom=True)`. Photos « utilisable » seulement, jamais d'enfants. Mélanger un même contexte à des époques différentes.
