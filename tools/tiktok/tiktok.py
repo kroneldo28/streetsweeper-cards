@@ -242,13 +242,14 @@ def _bottom_gradient(h=620, top_alpha=0, bottom_alpha=235):
     return bg
 
 
-def photo_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5, scale=2, subtitle=None, caption_top=False):
+def photo_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5, scale=2, subtitle=None, caption_top=False, tight=1.0):
     """Photo plein cadre 9:16 (centre réglable) + dégradé du pattern en bas + légende « Ville · année »."""
     from pillow_heif import register_heif_opener
     register_heif_opener()
     im = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
     w, h = im.size
     tw, th = (w, int(w * 16 / 9)) if w / h < 9 / 16 else (int(h * 9 / 16), h)
+    tw, th = int(tw * tight), int(th * tight)
     x = int(max(0, min(w - tw, crop_x * w - tw / 2)))
     y = int(max(0, min(h - th, crop_y * h - th / 2)))
     im = im.crop((x, y, x + tw, y + th)).resize((W * scale, H * scale), Image.LANCZOS).convert("RGBA")
@@ -272,7 +273,7 @@ def photo_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5, scale=2, subtitl
     return dst
 
 
-def finish(video, out, track=None, overlay=True, volume=1.0):
+def finish(video, out, track=None, overlay=True, volume=1.0, track_start=0):
     """Ajoute l'habillage (fixe, ne zoome pas) et la musique (fondu d'entrée et de sortie)."""
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video],
                                capture_output=True, text=True).stdout)
@@ -282,7 +283,7 @@ def finish(video, out, track=None, overlay=True, volume=1.0):
         ov = os.path.join(tempfile.mkdtemp(), "ov.png"); brand_overlay(ov)
         cmd += ["-i", ov]; filt.append("[0:v][1:v]overlay=0:0[v]"); vmap = "[v]"
     if track:
-        cmd += ["-i", track]
+        cmd += ["-ss", str(track_start), "-i", track]
         ai = 2 if overlay else 1
         filt.append(f"[{ai}:a]atrim=0:{dur:.2f},afade=t=in:d=0.4,afade=t=out:st={max(0, dur - 1.5):.2f}:d=1.5,volume={volume}[a]")
     if filt:
@@ -329,3 +330,62 @@ def lifestyle_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5):
     im.paste(lg, (2160 - 420 - 110, 150), lg)
     im.save(dst, quality=95)
     return dst
+
+
+# ------------------------------------------------------------------ légendes animées
+def _text_png(text, font_path, size, color, out, bar=False):
+    """Texte avec ombre portée douce, fond transparent (pour les légendes animées)."""
+    from PIL import ImageFilter
+    f = ImageFont.truetype(font_path, size)
+    tmp = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    bb = tmp.textbbox((0, 0), text, font=f)
+    pad, top = 30, (40 if bar else 0)
+    wpx, hpx = bb[2] - bb[0] + 2 * pad, bb[3] - bb[1] + 2 * pad + top
+    sh = Image.new("RGBA", (wpx, hpx), (0, 0, 0, 0))
+    ImageDraw.Draw(sh).text((pad - bb[0] + 3, pad + top - bb[1] + 4), text, font=f, fill=(0, 0, 0, 200))
+    sh = sh.filter(ImageFilter.GaussianBlur(8))
+    d = ImageDraw.Draw(sh)
+    if bar:
+        d.rectangle([pad, pad, pad + 90, pad + 6], fill=GOLD + (255,))
+    d.text((pad - bb[0], pad + top - bb[1]), text, font=f, fill=color + (255,))
+    sh.save(out)
+    return out, wpx, hpx
+
+
+def animated_segment(photo_png, out, dur, title, subtitle, y_title=1150, slide=0.7):
+    """Photo (zoom lent) + titre qui arrive de la gauche + sous-titre qui arrive de la droite."""
+    wd = tempfile.mkdtemp()
+    t1, w1, h1 = _text_png(title, F_BOLD, 104, WHITE, os.path.join(wd, "t.png"), bar=True)
+    t2, w2, h2 = _text_png(subtitle, F_MED, 52, GOLD, os.path.join(wd, "s.png")) if subtitle else (None, 0, 0)
+    x0 = MARGIN + 40 - 30
+    nf = int(dur * FPS)
+    ease = lambda st: f"(1-pow(1-min(max((t-{st})/{slide},0),1),3))"
+    f = (f"[0:v]scale=2160:3840,zoompan=z='min(1+0.06*on/{nf},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+         f"d={nf}:s={W}x{H}:fps={FPS},setsar=1[bg];"
+         f"[bg][1:v]overlay=x='-w+({x0}+w)*{ease(0.15)}':y={y_title}:eval=frame[a]")
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-t", str(dur), "-i", photo_png,
+           "-loop", "1", "-t", str(dur), "-i", t1]
+    if t2:
+        cmd += ["-loop", "1", "-t", str(dur), "-i", t2]
+        f += f";[a][2:v]overlay=x='W-(W-{x0 + 2})*{ease(0.35)}':y={y_title + h1 - 22}:eval=frame[o]"
+        last = "[o]"
+    else:
+        last = "[a]"
+    cmd += ["-filter_complex", f, "-map", last, "-t", str(dur), "-r", str(FPS), "-c:v", "libx264", "-pix_fmt", "yuv420p", out]
+    subprocess.run(cmd, check=True)
+    return out
+
+
+def concat_xfade(segs, durs, out):
+    cmd, filt, prev, off = ["ffmpeg", "-y", "-loglevel", "error"], [], "0:v", 0.0
+    for s_ in segs:
+        cmd += ["-i", s_]
+    for i in range(1, len(segs)):
+        off += durs[i - 1] - XFADE
+        filt.append(f"[{prev}][{i}:v]xfade=transition=fade:duration={XFADE}:offset={off:.2f}[x{i}]")
+        prev = f"x{i}"
+    if filt:
+        cmd += ["-filter_complex", ";".join(filt), "-map", f"[{prev}]"]
+    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), "-an", out]
+    subprocess.run(cmd, check=True)
+    return round(sum(durs) - XFADE * (len(durs) - 1), 1)
