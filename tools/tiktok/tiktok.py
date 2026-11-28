@@ -333,7 +333,7 @@ def lifestyle_frame(src, dst, caption=None, crop_x=0.5, crop_y=0.5):
 
 
 # ------------------------------------------------------------------ légendes animées
-def _text_png(text, font_path, size, color, out, bar=False):
+def _text_png(text, font_path, size, color, out, bar=False, bar_right=False):
     """Texte avec ombre portée douce, fond transparent (pour les légendes animées)."""
     from PIL import ImageFilter
     f = ImageFont.truetype(font_path, size)
@@ -346,28 +346,52 @@ def _text_png(text, font_path, size, color, out, bar=False):
     sh = sh.filter(ImageFilter.GaussianBlur(8))
     d = ImageDraw.Draw(sh)
     if bar:
-        d.rectangle([pad, pad, pad + 90, pad + 6], fill=GOLD + (255,))
+        bx = wpx - pad - 90 if bar_right else pad
+        d.rectangle([bx, pad, bx + 90, pad + 6], fill=GOLD + (255,))
     d.text((pad - bb[0], pad + top - bb[1]), text, font=f, fill=color + (255,))
     sh.save(out)
     return out, wpx, hpx
 
 
-def animated_segment(photo_png, out, dur, title, subtitle, y_title=1150, slide=0.7):
-    """Photo (zoom lent) + titre qui arrive de la gauche + sous-titre qui arrive de la droite."""
+def _shade(photo_png, out, y0, h, side="left", width=820):
+    """Fond ombragé façon RAP237 (pattern Kouakep sur Rich Black) derrière la légende :
+    dense côté texte, qui s'efface vers l'intérieur de l'image et en haut/bas."""
+    base = Image.open(photo_png).convert("RGBA")
+    band = pattern_bg(W, h).convert("RGBA")
+    xs = np.linspace(0, 1, W)
+    hx = np.clip(1 - (xs * W) / width, 0, 1) if side == "left" else np.clip(1 - ((1 - xs) * W) / width, 0, 1)
+    ys = np.linspace(-1, 1, h)
+    vy = np.clip(1 - np.abs(ys) ** 3, 0, 1)
+    a = (np.outer(vy, np.clip(hx * 1.6, 0, 1) ** 0.7) * 235).astype("uint8")
+    band.putalpha(Image.fromarray(a))
+    base.alpha_composite(band, (0, int(y0)))
+    base.convert("RGB").save(out)
+    return out
+
+
+def animated_segment(photo_png, out, dur, title, subtitle, y_title=1150, slide=0.7, side="left", shade=True):
+    """Photo (zoom lent) + titre qui arrive de la gauche + sous-titre qui arrive de la droite.
+    side = côté où la légende se pose (left | right) ; fond ombragé derrière pour la lisibilité."""
     wd = tempfile.mkdtemp()
-    t1, w1, h1 = _text_png(title, F_BOLD, 104, WHITE, os.path.join(wd, "t.png"), bar=True)
+    t1, w1, h1 = _text_png(title, F_BOLD, 104, WHITE, os.path.join(wd, "t.png"), bar=True, bar_right=(side == "right"))
     t2, w2, h2 = _text_png(subtitle, F_MED, 52, GOLD, os.path.join(wd, "s.png")) if subtitle else (None, 0, 0)
-    x0 = MARGIN + 40 - 30
+    if shade:
+        photo_png = _shade(photo_png, os.path.join(wd, "bg.png"), max(0, y_title - 90), h1 + h2 + 180, side)
+    if side == "left":
+        x1 = x2 = MARGIN + 40 - 30
+    else:
+        x1 = W - MARGIN - 40 + 30 - w1
+        x2 = W - MARGIN - 40 + 30 - w2
     nf = int(dur * FPS)
     ease = lambda st: f"(1-pow(1-min(max((t-{st})/{slide},0),1),3))"
     f = (f"[0:v]scale=2160:3840,zoompan=z='min(1+0.06*on/{nf},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
          f"d={nf}:s={W}x{H}:fps={FPS},setsar=1[bg];"
-         f"[bg][1:v]overlay=x='-w+({x0}+w)*{ease(0.15)}':y={y_title}:eval=frame[a]")
+         f"[bg][1:v]overlay=x='-w+({x1}+w)*{ease(0.15)}':y={y_title}:eval=frame[a]")
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-t", str(dur), "-i", photo_png,
            "-loop", "1", "-t", str(dur), "-i", t1]
     if t2:
         cmd += ["-loop", "1", "-t", str(dur), "-i", t2]
-        f += f";[a][2:v]overlay=x='W-(W-{x0 + 2})*{ease(0.35)}':y={y_title + h1 - 22}:eval=frame[o]"
+        f += f";[a][2:v]overlay=x='W-(W-{x2})*{ease(0.35)}':y={y_title + h1 - 22}:eval=frame[o]"
         last = "[o]"
     else:
         last = "[a]"
